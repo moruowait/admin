@@ -63,3 +63,31 @@ func (db *HomeStayDB) GetHomestayRoomMap() (map[int]*HomestayRoom, error) {
 	}
 	return rooms, nil
 }
+
+// 民宿支出明细表
+type HomestaySpendDetail struct {
+	ID         int       `json:"id" gorm:"id"`                   // 序号
+	ItemID     int       `json:"item_id" gorm:"item_id"`         // 支出项目 id
+	ItemName   string    `json:"item_name" gorm:"item_name"`     // 支出项目名称
+	Money      float64   `json:"money" gorm:"money"`             // 支出金额
+	Time       time.Time `json:"time" gorm:"time"`               // 支出时间
+	Desc       string    `json:"desc" gorm:"desc"`               // 描述
+	UpdateTime time.Time `json:"update_time" gorm:"update_time"` // 更新时间
+}
+
+// 获取民宿支出详情数据
+func (db *HomeStayDB) GetHomestaySpendDetailData(startTime, endTime string) ([]*HomestaySpendDetail, error) {
+	var details []*HomestaySpendDetail
+	sql := `select 
+				a.*,b.name as item_name
+			from 
+				homestay_spend_detail a 
+			left join 
+ 				homestay_spend_item b on a.item_id = b.id 
+			where a.time between ? and ?
+			order by a.id`
+	if err := db.DB.Raw(sql, startTime, endTime).Scan(&details).Error; err != nil {
+		return nil, err
+	}
+	return details, nil
+}
