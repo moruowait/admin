@@ -20,6 +20,7 @@ import (
 
 const dateFormat = "2006-01-02"
 
+// 获取民宿查询图表
 func GetHomestaySearchDashboard(ctx *gin.Context) (types.Panel, error) {
 	components := template2.Get(config.GetTheme())
 	colComp := components.Col()
