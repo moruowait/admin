@@ -83,6 +83,18 @@ func GetHomestaySearchDashboard(ctx *gin.Context) (types.Panel, error) {
 					generateHomestayRoomEmptyRateBarChart(startTime, endTime, incomeDetails),
 				).GetContent(),
 		).GetContent()
+	//generateHomestayMonthlyRoomEmptyRateBarChart
+	// 房间空置率图
+	incomeMonthlyRoomEmptyRateBox := colComp.SetSize(types.SizeMD(6)).
+		SetContent(
+			components.Box().
+				WithHeadBorder().SetHeader("房间空置率图").
+				WithSecondHeadBorder().SetSecondHeader(template2.HTML(fmt.Sprintf("%s至%s明细", startTime, endTime))).
+				SetBody(
+					generateHomestayMonthlyRoomEmptyRateBarChart(startTime, endTime, incomeDetails),
+				).GetContent(),
+		).GetContent()
+
 	// 收入支出对比图
 	incomeSpendMonthlyBox := colComp.SetSize(types.SizeMD(6)).
 		SetContent(
@@ -105,7 +117,7 @@ func GetHomestaySearchDashboard(ctx *gin.Context) (types.Panel, error) {
 				).GetContent(),
 		).GetContent()
 	// 图表行
-	chartRow := components.Row().SetContent(incomeChannelBox + incomeRoomBox + incomeRoomEmptyRateBox + incomeSpendMonthlyBox).GetContent()
+	chartRow := components.Row().SetContent(incomeChannelBox + incomeRoomBox + incomeRoomEmptyRateBox + incomeMonthlyRoomEmptyRateBox + incomeSpendMonthlyBox).GetContent()
 	chartRow2 := components.Row().SetContent(incomeBarBox).GetContent()
 	//chartRow3 := components.Row().SetContent(incomeSpendMonthlyBox).GetContent()
 	// 搜索按钮
@@ -226,7 +238,7 @@ func generateHomestayRoomEmptyRateBarChart(startTime, endTime string, details []
 	var yAxis []string
 	for key, v := range count {
 		xAxis = append(xAxis, key)
-		yAxis = append(yAxis, fmt.Sprintf("%.2f", float64(v*100)/float64(days)))
+		yAxis = append(yAxis, fmt.Sprintf("%.2f", 100-float64(v*100)/float64(days)))
 	}
 
 	bar := charts.NewBar()
@@ -236,7 +248,59 @@ func generateHomestayRoomEmptyRateBarChart(startTime, endTime string, details []
 	bar.AddXAxis(xAxis)
 	bar.AddYAxis("百分比", yAxis, charts.BarOpts{YAxisIndex: 0, BarGap: "50%", BarCategoryGap: "50%"})
 
-	bar.Width = "270px"
+	bar.Width = "450px"
+	bar.Height = "250px"
+	return echarts.NewChart().SetContent(bar).GetContent()
+}
+
+// 生成民宿房间月空置率图
+func generateHomestayMonthlyRoomEmptyRateBarChart(startTime, endTime string, incomes []*homestaydb.HomestayIncomeDetail) template.HTML {
+	st, _ := time.Parse(dateFormat, startTime)
+	et, _ := time.Parse(dateFormat, endTime)
+
+	var xAxis []string // X轴日期
+	for it := st; it.Before(et); it = it.AddDate(0, 1, 0) {
+		xAxis = append(xAxis, formatYearMonth(it))
+	}
+	// 月天数
+	dayMap := getMonthDay(st, et)
+	var incomeMap = make(map[string]map[string]float64)
+	for _, income := range incomes {
+		// 删除刷单的渠道
+		if income.Money < 0 {
+			continue
+		}
+
+		room := fmt.Sprint(income.Room)
+
+		if _, ok := incomeMap[room]; !ok {
+			incomeMap[room] = map[string]float64{
+				formatYearMonth(income.IncomeTime): 1,
+			}
+		} else {
+			if _, ok := incomeMap[room][formatYearMonth(income.IncomeTime)]; !ok {
+				incomeMap[room][formatYearMonth(income.IncomeTime)] = 1
+			} else {
+				incomeMap[room][formatYearMonth(income.IncomeTime)]++
+			}
+
+		}
+	}
+
+	bar := charts.NewBar()
+	bar.SetGlobalOptions(
+		charts.YAxisOpts{AxisLabel: charts.LabelTextOpts{Formatter: "{value}%"}},
+	)
+	bar.AddXAxis(xAxis)
+	for room, months := range incomeMap {
+		var yAxis []string
+		for month, _ := range months {
+			//incomeMap[room][month] = incomeMap[room][month] / float64(dayMap[month])
+			yAxis = append(yAxis, fmt.Sprintf("%.2f", 100-incomeMap[room][month]*100/float64(dayMap[month])))
+		}
+		bar.AddYAxis(room, yAxis, charts.BarOpts{YAxisIndex: 0, BarGap: "50%", BarCategoryGap: "50%"})
+	}
+	bar.Width = "450px"
 	bar.Height = "250px"
 	return echarts.NewChart().SetContent(bar).GetContent()
 }
@@ -245,10 +309,6 @@ func generateHomestayRoomEmptyRateBarChart(startTime, endTime string, details []
 func generateHomestaySpendIncomeBarChart(startTime, endTime string, spends []*homestaydb.HomestaySpendDetail, incomes []*homestaydb.HomestayIncomeDetail, room map[int]*homestaydb.HomestayRoom) template.HTML {
 	st, _ := time.Parse(dateFormat, startTime)
 	et, _ := time.Parse(dateFormat, endTime)
-
-	formatYearMonth := func(t time.Time) string {
-		return fmt.Sprintf("%d-%d", t.Year(), t.Month())
-	}
 
 	var spendMap = make(map[string]float64)
 	var incomeMap = make(map[string]float64)
@@ -291,6 +351,19 @@ func generateHomestaySpendIncomeBarChart(startTime, endTime string, spends []*ho
 	bar.Height = "250px"
 
 	return echarts.NewChart().SetContent(bar).GetContent()
+}
+
+// 获取范围内月天数
+func getMonthDay(startTime, endTime time.Time) map[string]int {
+	var MDays = make(map[string]int)
+	for it := startTime; it.Before(endTime); it = it.AddDate(0, 0, 1) {
+		MDays[formatYearMonth(it)]++
+	}
+	return MDays
+}
+
+func formatYearMonth(t time.Time) string {
+	return fmt.Sprintf("%d-%d", t.Year(), t.Month())
 }
 
 func sortedMap(m map[string]float64) []float64 {
