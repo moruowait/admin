@@ -85,7 +85,7 @@ func (db *HomeStayDB) GetHomestaySpendDetailData(startTime, endTime string) ([]*
 			left join 
  				homestay_spend_item b on a.item_id = b.id 
 			where a.time between ? and ?
-			order by a.id`
+			order by a.time`
 	if err := db.DB.Raw(sql, startTime, endTime).Scan(&details).Error; err != nil {
 		return nil, err
 	}

@@ -3,6 +3,7 @@ package pages
 import (
 	"fmt"
 	"html/template"
+	"sort"
 	"time"
 
 	"github.com/GoAdminGroup/components/echarts"
@@ -39,7 +40,18 @@ func GetHomestaySearchDashboard(ctx *gin.Context) (types.Panel, error) {
 	if err != nil {
 		return types.Panel{}, err
 	}
-
+	// 获取支出明细
+	spendDetails, err := homestaydb.GetHomestayDB().GetHomestaySpendDetailData(startTime, endTime)
+	if err != nil {
+		return types.Panel{}, err
+	}
+	fmt.Println("spendDetails:", spendDetails)
+	// 获取房间信息
+	roomMap, err := homestaydb.GetHomestayDB().GetHomestayRoomMap()
+	if err != nil {
+		return types.Panel{}, err
+	}
+	fmt.Println("roomMap:", roomMap)
 	// 渠道收入占比图
 	incomeChannelBox := colComp.SetSize(types.SizeMD(3)).
 		SetContent(
@@ -62,7 +74,7 @@ func GetHomestaySearchDashboard(ctx *gin.Context) (types.Panel, error) {
 				).GetContent(),
 		).GetContent()
 	// 房间空置率图
-	incomeRoomEmptyRateBox := colComp.SetSize(types.SizeMD(3)).
+	incomeRoomEmptyRateBox := colComp.SetSize(types.SizeMD(6)).
 		SetContent(
 			components.Box().
 				WithHeadBorder().SetHeader("房间空置率图").
@@ -71,6 +83,17 @@ func GetHomestaySearchDashboard(ctx *gin.Context) (types.Panel, error) {
 					generateHomestayRoomEmptyRateBarChart(startTime, endTime, incomeDetails),
 				).GetContent(),
 		).GetContent()
+	// 收入支出对比图
+	incomeSpendMonthlyBox := colComp.SetSize(types.SizeMD(6)).
+		SetContent(
+			components.Box().
+				WithHeadBorder().SetHeader("月收入支出图").
+				WithSecondHeadBorder().SetSecondHeader(template2.HTML(fmt.Sprintf("%s至%s明细", startTime, endTime))).
+				SetBody(
+					generateHomestaySpendIncomeBarChart(startTime, endTime, spendDetails, incomeDetails, roomMap),
+				).GetContent(),
+		).GetContent()
+
 	// 渠道收入柱状图
 	incomeBarBox := colComp.SetSize(types.SizeMD(12)).
 		SetContent(
@@ -82,8 +105,9 @@ func GetHomestaySearchDashboard(ctx *gin.Context) (types.Panel, error) {
 				).GetContent(),
 		).GetContent()
 	// 图表行
-	chartRow := components.Row().SetContent(incomeChannelBox + incomeRoomBox + incomeRoomEmptyRateBox).GetContent()
+	chartRow := components.Row().SetContent(incomeChannelBox + incomeRoomBox + incomeRoomEmptyRateBox + incomeSpendMonthlyBox).GetContent()
 	chartRow2 := components.Row().SetContent(incomeBarBox).GetContent()
+	//chartRow3 := components.Row().SetContent(incomeSpendMonthlyBox).GetContent()
 	// 搜索按钮
 	searchBtn := components.Button().
 		SetContent(language.GetFromHtml("search")).
@@ -215,6 +239,71 @@ func generateHomestayRoomEmptyRateBarChart(startTime, endTime string, details []
 	bar.Width = "270px"
 	bar.Height = "250px"
 	return echarts.NewChart().SetContent(bar).GetContent()
+}
+
+// 生成民宿收支对比图
+func generateHomestaySpendIncomeBarChart(startTime, endTime string, spends []*homestaydb.HomestaySpendDetail, incomes []*homestaydb.HomestayIncomeDetail, room map[int]*homestaydb.HomestayRoom) template.HTML {
+	st, _ := time.Parse(dateFormat, startTime)
+	et, _ := time.Parse(dateFormat, endTime)
+
+	formatYearMonth := func(t time.Time) string {
+		return fmt.Sprintf("%d-%d", t.Year(), t.Month())
+	}
+
+	var spendMap = make(map[string]float64)
+	var incomeMap = make(map[string]float64)
+	var makeDealMap = make(map[string]float64) // 刷单
+	var xAxis []string                         // X轴日期
+	for it := st; it.Before(et); it = it.AddDate(0, 1, 0) {
+		key := formatYearMonth(it)
+		spendMap[key] = 0
+		incomeMap[key] = 0
+		xAxis = append(xAxis, key)
+	}
+	// 支出
+	for _, v := range spends {
+		spendMap[formatYearMonth(v.Time)] += v.Money
+	}
+	// 物业费+房租
+	for _, r := range room {
+		for k, _ := range spendMap {
+			spendMap[k] += r.MonthlyManageFee + r.MonthlyRent
+		}
+	}
+	// 收入
+	for _, v := range incomes {
+		if v.Money < 0 { // 刷单
+			makeDealMap[formatYearMonth(v.IncomeTime)] += -v.Money
+			continue
+		}
+		incomeMap[formatYearMonth(v.IncomeTime)] += v.Money
+	}
+
+	bar := charts.NewBar()
+	bar.SetGlobalOptions(
+		charts.YAxisOpts{AxisLabel: charts.LabelTextOpts{Formatter: "{value} 元"}},
+	)
+	bar.AddXAxis(xAxis)
+	bar.AddYAxis("支出", sortedMap(spendMap), charts.BarOpts{YAxisIndex: 0})
+	bar.AddYAxis("收入", sortedMap(incomeMap), charts.BarOpts{YAxisIndex: 0})
+	bar.AddYAxis("刷单", sortedMap(makeDealMap), charts.BarOpts{YAxisIndex: 0})
+	bar.Width = "650px"
+	bar.Height = "250px"
+
+	return echarts.NewChart().SetContent(bar).GetContent()
+}
+
+func sortedMap(m map[string]float64) []float64 {
+	var keys []string
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var value []float64
+	for _, k := range keys {
+		value = append(value, m[k])
+	}
+	return value
 }
 
 // 生成民宿收入价格趋势图
